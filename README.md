@@ -33,3 +33,25 @@ This repo (excluding translations) is licensed under [GPLv3](https://github.com/
 Interested in translating Aidoku? We use [Weblate](https://hosted.weblate.org/engage/aidoku/) to crowdsource translations, so anyone can create an account and contribute!
 
 Translations are licensed separately from the app code, under [Apache 2.0](https://spdx.org/licenses/Apache-2.0.html).
+
+## Cross-platform scaffold (fork branch)
+
+This fork branch includes an initial Swift Package scaffold for cross-platform development:
+
+- `AidokuCore`: pure Swift domain models and platform protocols.
+- `AidokuAppleAdapters`: Apple-side adapter implementations.
+- `AidokuAndroidAdapters`: Android-oriented adapter implementations (Swift runtime path).
+- `AidokuBootstrap`: platform dependency container bootstrap.
+
+### Local verification
+
+- Check that `AidokuCore` remains free of Apple-only frameworks:
+  - `scripts/check-core-imports.sh`
+- Run package tests:
+  - `swift test`
+
+### Android toolchain build
+
+After installing a Swift Android SDK (`swift sdk list`), build with:
+
+- `scripts/android/build-swift-android.sh <sdk-id>`
