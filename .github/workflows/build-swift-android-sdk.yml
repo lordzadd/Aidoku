@@ -117,7 +117,6 @@ jobs:
             --install-destdir="$SDK" \
             --swift-install-components='compiler;clang-resource-dir-symlink;license;stdlib;sdk-overlay' \
             --cross-compile-append-host-target-to-destdir=False --cross-compile-build-swift-tools=False \
-            -b --install-llbuild \
             -p "--foundation-cmake-options=-DCMAKE_SHARED_LINKER_FLAGS=''"
 
           pushd "$SDK_NAME/usr"
