@@ -30,22 +30,42 @@ SDK_ANDROID_API_LEVEL="${SDK_ANDROID_API_LEVEL:-24}"
 BUNDLE_VERSION="${BUNDLE_VERSION:-0.1}"
 
 # ── Detect host toolchain ────────────────────────────────────────────────────
-# We need a toolchain that includes `lld`. Xcode's toolchain lacks lld.
-# The OSS Swift toolchain (installed as .pkg) includes it at usr/bin/lld.
+# Need a toolchain with `lld` — Xcode's toolchain lacks it. Priority:
+#   1. OSS Swift pkg  (/Library/Developer/Toolchains/<tag>.xctoolchain)
+#   2. brew llvm      (brew install llvm  →  provides lld separately)
 OSS_TOOLCHAIN="/Library/Developer/Toolchains/${SWIFT_TAG}.xctoolchain/usr"
+BREW_LLVM_BIN="$(brew --prefix llvm 2>/dev/null)/bin"
+XCODE_TOOLCHAIN="$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr"
 
 TOOLCHAIN=""
 if [[ -d "$OSS_TOOLCHAIN" && -f "$OSS_TOOLCHAIN/bin/lld" ]]; then
   TOOLCHAIN="$OSS_TOOLCHAIN"
   echo "==> Using OSS Swift toolchain: $TOOLCHAIN"
+elif [[ -f "$BREW_LLVM_BIN/lld" ]]; then
+  # brew llvm has lld but not swift/swiftc — create a synthetic toolchain dir
+  # that merges Xcode's swift with brew's lld.
+  SYNTH="$(mktemp -d)/swift-toolchain-bin"
+  mkdir "$SYNTH"
+  for bin in swift swiftc clang clang++; do
+    ln -s "$(xcrun -f $bin 2>/dev/null || true)" "$SYNTH/$bin" 2>/dev/null || true
+  done
+  ln -s "$BREW_LLVM_BIN/lld"  "$SYNTH/lld"
+  ln -s "$BREW_LLVM_BIN/lld"  "$SYNTH/ld.lld"
+  TOOLCHAIN="$(dirname "$SYNTH")"
+  mkdir -p "$TOOLCHAIN/lib/clang"
+  cp -r "$XCODE_TOOLCHAIN/lib/clang" "$TOOLCHAIN/lib/" 2>/dev/null || true
+  # Adjust TOOLCHAIN to point to the dir containing bin/
+  ln -s "$SYNTH" "$TOOLCHAIN/bin"
+  echo "==> Using synthetic toolchain (Xcode swift + brew lld): $TOOLCHAIN"
 else
-  echo "error: OSS Swift toolchain with lld not found at $OSS_TOOLCHAIN"
+  echo "error: no toolchain with lld found. Choose one of:"
   echo ""
-  echo "Install the OSS toolchain for your Swift version from:"
-  echo "  https://www.swift.org/install/macos/"
+  echo "  A) Install OSS Swift ${SWIFT_TAG} toolchain (~300 MB, recommended):"
+  echo "     https://download.swift.org/swift-6.2.4-release/xcode/${SWIFT_TAG}/${SWIFT_TAG}-osx.pkg"
   echo ""
-  echo "Download and install: ${SWIFT_TAG}-osx.pkg"
-  echo "After installation, re-run this script."
+  echo "  B) Install brew llvm (~2 GB, provides lld):"
+  echo "     brew install llvm cmake ninja patchelf"
+  echo ""
   exit 1
 fi
 
