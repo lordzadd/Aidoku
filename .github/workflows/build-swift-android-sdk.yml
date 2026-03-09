@@ -43,6 +43,7 @@ jobs:
           SWIFT_TAG: ${{ inputs.swift_tag }}
         run: |
           set -euxo pipefail
+          SWIFT_TAG="${SWIFT_TAG:-swift-6.2.4-RELEASE}"
           SWIFT_BRANCH="swift-$(echo "$SWIFT_TAG" | cut -d- -f2)-release"
           URL="https://download.swift.org/${SWIFT_BRANCH}/ubuntu2404/${SWIFT_TAG}/${SWIFT_TAG}-ubuntu24.04.tar.gz"
           wget -q "$URL" -O "$HOME/${SWIFT_TAG}-ubuntu24.04.tar.gz"
@@ -56,6 +57,7 @@ jobs:
           NDK_VERSION: ${{ inputs.ndk_version }}
         run: |
           set -euxo pipefail
+          NDK_VERSION="${NDK_VERSION:-27d}"
           wget -q "https://dl.google.com/android/repository/android-ndk-r${NDK_VERSION}-linux.zip"
           unzip -q "android-ndk-r${NDK_VERSION}-linux.zip"
           rm "android-ndk-r${NDK_VERSION}-linux.zip"
@@ -74,6 +76,10 @@ jobs:
           BUNDLE_VERSION: ${{ inputs.bundle_version }}
         run: |
           set -euxo pipefail
+          SWIFT_TAG="${SWIFT_TAG:-swift-6.2.4-RELEASE}"
+          SDK_ANDROID_API_LEVEL="${SDK_ANDROID_API_LEVEL:-24}"
+          NDK_VERSION="${NDK_VERSION:-27d}"
+          BUNDLE_VERSION="${BUNDLE_VERSION:-0.1}"
 
           cd sdk-config
 
