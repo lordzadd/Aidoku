@@ -141,6 +141,12 @@ SDK="$(pwd)/$SDK_NAME"
 cp "$SYSROOT/usr/include/execinfo.h" "$SDK_NAME/usr/include"
 perl -pi -e 's%33%24%' "$SDK_NAME/usr/include/execinfo.h"
 
+# NDK r27's spawn.h guards posix_spawnattr_* behind #if __ANDROID_API__ >= 28.
+# Foundation/Process.swift uses posix_spawnattr_destroy unconditionally, causing
+# "cannot find in scope" errors at API 24. Replace with libandroid-spawn's spawn.h.
+cp "$SDK_NAME/usr/include/spawn.h" "$NDK_PREBUILT/sysroot/usr/include/spawn.h"
+cp "$SDK_NAME/usr/include/spawn.h" "$SYSROOT/usr/include/spawn.h"
+
 echo "==> Building Swift stdlib for Android (this takes 1-3 hours)..."
 ./swift/utils/build-script -RA \
   --skip-build-cmark \

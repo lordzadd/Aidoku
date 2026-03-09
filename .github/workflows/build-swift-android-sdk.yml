@@ -114,6 +114,15 @@ jobs:
           cp "$SYSROOT/usr/include/execinfo.h" "$SDK_NAME/usr/include"
           perl -pi -e 's%33%24%' "$SDK_NAME/usr/include/execinfo.h"
 
+          # NDK r27's spawn.h guards posix_spawnattr_t and posix_spawnattr_*
+          # behind #if __ANDROID_API__ >= 28, so at API 24 they're not declared.
+          # Foundation/Process.swift uses posix_spawnattr_destroy unconditionally,
+          # causing "cannot find in scope" errors. Replace NDK's spawn.h with the
+          # libandroid-spawn Termux package's spawn.h, which has no API guards.
+          cp "$SDK_NAME/usr/include/spawn.h" \
+            "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/spawn.h"
+          cp "$SDK_NAME/usr/include/spawn.h" "$SYSROOT/usr/include/spawn.h"
+
           ./swift/utils/build-script -RA --skip-build-cmark --build-llvm=0 --android \
             --android-ndk "$ANDROID_NDK_HOME" --android-arch "$ANDROID_ARCH" --android-api-level "$SDK_ANDROID_API_LEVEL" \
             --native-swift-tools-path="$TOOLCHAIN/bin" --native-clang-tools-path="$TOOLCHAIN/bin" \
