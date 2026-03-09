@@ -113,7 +113,7 @@ jobs:
             --android-ndk "$ANDROID_NDK_HOME" --android-arch "$ANDROID_ARCH" --android-api-level "$SDK_ANDROID_API_LEVEL" \
             --native-swift-tools-path="$TOOLCHAIN/bin" --native-clang-tools-path="$TOOLCHAIN/bin" \
             --cross-compile-hosts="android-$ANDROID_ARCH" --cross-compile-deps-path="$SDK" --skip-local-build \
-            --build-swift-static-stdlib --xctest --install-swift --install-libdispatch --install-foundation --install-xctest \
+            --build-swift-static-stdlib --install-swift --install-libdispatch --install-foundation \
             --install-destdir="$SDK" \
             --swift-install-components='compiler;clang-resource-dir-symlink;license;stdlib;sdk-overlay' \
             --cross-compile-append-host-target-to-destdir=False --cross-compile-build-swift-tools=False \
