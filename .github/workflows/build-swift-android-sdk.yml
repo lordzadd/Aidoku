@@ -46,7 +46,7 @@ jobs:
           SWIFT_TAG="${SWIFT_TAG:-swift-6.2.4-RELEASE}"
           SWIFT_BRANCH="swift-$(echo "$SWIFT_TAG" | cut -d- -f2)-release"
           URL="https://download.swift.org/${SWIFT_BRANCH}/ubuntu2404/${SWIFT_TAG}/${SWIFT_TAG}-ubuntu24.04.tar.gz"
-          wget -q "$URL" -O "$HOME/${SWIFT_TAG}-ubuntu24.04.tar.gz"
+          wget -q --tries=5 --retry-connrefused --waitretry=5 --timeout=60 "$URL" -O "$HOME/${SWIFT_TAG}-ubuntu24.04.tar.gz"
           tar xf "$HOME/${SWIFT_TAG}-ubuntu24.04.tar.gz"
           SWIFT_TOOLS_DIR="${SWIFT_TAG}-ubuntu24.04"
           echo "TOOLCHAIN=${PWD}/${SWIFT_TOOLS_DIR}/usr" >> "$GITHUB_ENV"
@@ -58,7 +58,7 @@ jobs:
         run: |
           set -euxo pipefail
           NDK_VERSION="${NDK_VERSION:-27d}"
-          wget -q "https://dl.google.com/android/repository/android-ndk-r${NDK_VERSION}-linux.zip"
+          wget -q --tries=5 --retry-connrefused --waitretry=5 --timeout=60 "https://dl.google.com/android/repository/android-ndk-r${NDK_VERSION}-linux.zip"
           unzip -q "android-ndk-r${NDK_VERSION}-linux.zip"
           rm "android-ndk-r${NDK_VERSION}-linux.zip"
           mv "android-ndk-r${NDK_VERSION}" "$HOME/android-ndk-r${NDK_VERSION}"
