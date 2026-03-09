@@ -39,27 +39,36 @@ struct LibraryView: View {
     @State private var selection: MacRootSection? = .library
 
     var body: some View {
-        NavigationSplitView {
-            List(MacRootSection.allCases, selection: $selection) { section in
-                Label(section.title, systemImage: section.icon)
-                    .tag(section)
+        if #available(macOS 13.0, *) {
+            NavigationSplitView {
+                sidebarView
+            } detail: {
+                detailView(for: selection ?? .library)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .navigationTitle("Aidoku")
-            .listStyle(.sidebar)
-        } detail: {
-            detailView(for: selection ?? .library)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            NavigationView {
+                sidebarView
+                detailView(for: selection ?? .library)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
+    }
+
+    private var sidebarView: some View {
+        List(MacRootSection.allCases, id: \.self, selection: $selection) { section in
+            Label(section.title, systemImage: section.icon)
+                .tag(section)
+        }
+        .navigationTitle("Aidoku")
+        .listStyle(.sidebar)
     }
 
     @ViewBuilder
     private func detailView(for section: MacRootSection) -> some View {
         switch section {
             case .library:
-                PlaceholderSectionView(
-                    title: NSLocalizedString("LIBRARY", comment: ""),
-                    subtitle: "iPad-style layout scaffold for macOS"
-                )
+                MacLibrarySectionView()
             case .browse:
                 PlaceholderSectionView(
                     title: NSLocalizedString("BROWSE", comment: ""),
@@ -80,6 +89,73 @@ struct LibraryView: View {
                     title: NSLocalizedString("SETTINGS", comment: ""),
                     subtitle: "Application settings"
                 )
+        }
+    }
+}
+
+@MainActor
+private final class MacLibraryDataModel: ObservableObject {
+    @Published var searchQuery: String = ""
+    @Published private(set) var manga: [MangaInfo] = []
+
+    var filteredManga: [MangaInfo] {
+        guard !searchQuery.isEmpty else { return manga }
+        return manga.filter {
+            ($0.title ?? "").localizedCaseInsensitiveContains(searchQuery) ||
+            ($0.author ?? "").localizedCaseInsensitiveContains(searchQuery)
+        }
+    }
+
+    func loadLibrary() {
+        manga = CoreDataManager.shared.getLibraryManga()
+            .compactMap { object in
+                guard let manga = object.manga?.toManga() else {
+                    return nil
+                }
+                return MangaInfo(
+                    mangaId: manga.id,
+                    sourceId: manga.sourceId,
+                    coverUrl: manga.coverUrl,
+                    title: manga.title,
+                    author: manga.author,
+                    url: manga.url
+                )
+            }
+            .sorted { ($0.title ?? "").localizedCaseInsensitiveCompare($1.title ?? "") == .orderedAscending }
+    }
+}
+
+private struct MacLibrarySectionView: View {
+    @StateObject private var model = MacLibraryDataModel()
+
+    var body: some View {
+        List(model.filteredManga, id: \.identifier) { manga in
+            VStack(alignment: .leading, spacing: 2) {
+                Text(manga.title ?? NSLocalizedString("UNTITLED", comment: ""))
+                    .font(.headline)
+                if let author = manga.author, !author.isEmpty {
+                    Text(author)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .overlay {
+            if model.filteredManga.isEmpty {
+                PlaceholderSectionView(
+                    title: NSLocalizedString("LIBRARY", comment: ""),
+                    subtitle: NSLocalizedString("NO_RESULTS_FOUND", comment: "")
+                )
+            }
+        }
+        .searchable(text: $model.searchQuery, placement: .toolbar, prompt: NSLocalizedString("SEARCH", comment: ""))
+        .navigationTitle(NSLocalizedString("LIBRARY", comment: ""))
+        .task {
+            model.loadLibrary()
+        }
+        .refreshable {
+            model.loadLibrary()
         }
     }
 }
