@@ -83,7 +83,7 @@ jobs:
 
           cd sdk-config
 
-          ANDROID_ARCH=$ANDROID_ARCH BUILD_SWIFT_PM=1 "$TOOLCHAIN/bin/swift" get-packages-and-swift-source.swift
+          ANDROID_ARCH=$ANDROID_ARCH BUILD_SWIFT_PM=0 "$TOOLCHAIN/bin/swift" get-packages-and-swift-source.swift
 
           git apply -C1 swift-android.patch swift-android-ci.patch
           git apply -C0 swift-android-ci-prebuilt.patch
