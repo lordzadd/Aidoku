@@ -83,15 +83,20 @@ jobs:
 
           cd sdk-config
 
-          ANDROID_ARCH=$ANDROID_ARCH BUILD_SWIFT_PM=0 "$TOOLCHAIN/bin/swift" get-packages-and-swift-source.swift
+          # Do NOT set BUILD_SWIFT_PM — get-packages-and-swift-source.swift checks
+          # `!= nil`, so any value (including "0") enables the extra SwiftPM repos
+          # and triggers the SwiftPM-for-Android cross-compile, which fails with
+          # "missing required module 'SwiftAndroid'". Core SDK needs only the base
+          # swift repos (stdlib, Foundation, libdispatch, XCTest).
+          ANDROID_ARCH=$ANDROID_ARCH "$TOOLCHAIN/bin/swift" get-packages-and-swift-source.swift
 
-          git apply -C1 swift-android.patch swift-android-ci.patch
-          git apply -C0 swift-android-ci-prebuilt.patch
-          git apply swift-android-ci-release.patch swift-android-spawn.patch
+          # Only apply the core Android support patch; the CI patches (swift-android-ci,
+          # swift-android-ci-prebuilt, swift-android-ci-release, swift-android-spawn)
+          # exclusively touch extraSwiftRepos (llbuild, swiftpm, sourcekit-lsp, etc.)
+          # which are not cloned for a core SDK build.
+          git apply -C1 swift-android.patch
 
           perl -pi -e 's%33%24%' "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/execinfo.h"
-          perl -pi -e 's%String\(cString: getpass%"fake" //%' swiftpm/Sources/PackageRegistryCommand/PackageRegistryCommand+Auth.swift
-          perl -pi -e "s%swift/android',%swift/android', '-Xlinker', '-landroid-spawn',%" sourcekit-lsp/Utilities/build-script-helper.py
 
           VERSION="$(echo "$SWIFT_TAG" | cut -f1,2 -d-)-release"
           SDK_DIR="$VERSION-android-${SDK_ANDROID_API_LEVEL}-sdk"
