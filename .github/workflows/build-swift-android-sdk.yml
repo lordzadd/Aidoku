@@ -19,6 +19,9 @@ on:
         description: Bundle version suffix
         required: true
         default: "0.1"
+  push:
+    branches:
+      - 'codex/**'
 
 jobs:
   build-aarch64-sdk:
