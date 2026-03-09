@@ -1,0 +1,215 @@
+name: build-swift-android-sdk
+
+on:
+  workflow_dispatch:
+    inputs:
+      swift_tag:
+        description: Swift release tag (must be available on download.swift.org)
+        required: true
+        default: swift-6.2.4-RELEASE
+      android_api_level:
+        description: Minimum Android API level
+        required: true
+        default: "24"
+      ndk_version:
+        description: Android NDK version suffix
+        required: true
+        default: 27d
+      bundle_version:
+        description: Bundle version suffix
+        required: true
+        default: "0.1"
+
+jobs:
+  build-aarch64-sdk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      ANDROID_ARCH: aarch64
+    steps:
+      - name: Checkout Aidoku repo
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt update
+          sudo apt install -y ninja-build patchelf tree jq
+
+      - name: Download and extract Swift toolchain
+        env:
+          SWIFT_TAG: ${{ inputs.swift_tag }}
+        run: |
+          set -euxo pipefail
+          SWIFT_BRANCH="swift-$(echo "$SWIFT_TAG" | cut -d- -f2)-release"
+          URL="https://download.swift.org/${SWIFT_BRANCH}/ubuntu2404/${SWIFT_TAG}/${SWIFT_TAG}-ubuntu24.04.tar.gz"
+          wget -q "$URL" -O "$HOME/${SWIFT_TAG}-ubuntu24.04.tar.gz"
+          tar xf "$HOME/${SWIFT_TAG}-ubuntu24.04.tar.gz"
+          SWIFT_TOOLS_DIR="${SWIFT_TAG}-ubuntu24.04"
+          echo "TOOLCHAIN=${PWD}/${SWIFT_TOOLS_DIR}/usr" >> "$GITHUB_ENV"
+          "${PWD}/${SWIFT_TOOLS_DIR}/usr/bin/swift" --version
+
+      - name: Download and extract Android NDK sysroot
+        env:
+          NDK_VERSION: ${{ inputs.ndk_version }}
+        run: |
+          set -euxo pipefail
+          wget -q "https://dl.google.com/android/repository/android-ndk-r${NDK_VERSION}-linux.zip"
+          unzip -q "android-ndk-r${NDK_VERSION}-linux.zip"
+          rm "android-ndk-r${NDK_VERSION}-linux.zip"
+          mv "android-ndk-r${NDK_VERSION}" "$HOME/android-ndk-r${NDK_VERSION}"
+          echo "ANDROID_NDK_HOME=$HOME/android-ndk-r${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Clone SDK builder config repo
+        run: |
+          git clone --depth 1 https://github.com/finagolfin/swift-android-sdk.git sdk-config
+
+      - name: Build aarch64 Android Swift SDK bundle
+        env:
+          SWIFT_TAG: ${{ inputs.swift_tag }}
+          SDK_ANDROID_API_LEVEL: ${{ inputs.android_api_level }}
+          NDK_VERSION: ${{ inputs.ndk_version }}
+          BUNDLE_VERSION: ${{ inputs.bundle_version }}
+        run: |
+          set -euxo pipefail
+
+          cd sdk-config
+
+          ANDROID_ARCH=$ANDROID_ARCH BUILD_SWIFT_PM=1 "$TOOLCHAIN/bin/swift" get-packages-and-swift-source.swift
+
+          git apply -C1 swift-android.patch swift-android-ci.patch
+          git apply -C0 swift-android-ci-prebuilt.patch
+          git apply swift-android-ci-release.patch swift-android-spawn.patch
+
+          perl -pi -e 's%33%24%' "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/execinfo.h"
+          perl -pi -e 's%String\(cString: getpass%"fake" //%' swiftpm/Sources/PackageRegistryCommand/PackageRegistryCommand+Auth.swift
+          perl -pi -e "s%swift/android',%swift/android', '-Xlinker', '-landroid-spawn',%" sourcekit-lsp/Utilities/build-script-helper.py
+
+          VERSION="$(echo "$SWIFT_TAG" | cut -f1,2 -d-)-release"
+          SDK_DIR="$VERSION-android-${SDK_ANDROID_API_LEVEL}-sdk"
+          ROOT="android-${NDK_VERSION}-sysroot"
+          SYSROOT="$SDK_DIR/$ROOT"
+
+          mkdir "$SDK_DIR"
+
+          rm -rf "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/swift"
+          cp -a "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot" "$SYSROOT"
+
+          SDK_NAME="$(ls | grep swift-release-android-aarch64 | head -n1)"
+          SDK="$(pwd)/$SDK_NAME"
+
+          cp "$SYSROOT/usr/include/execinfo.h" "$SDK_NAME/usr/include"
+          perl -pi -e 's%33%24%' "$SDK_NAME/usr/include/execinfo.h"
+
+          ./swift/utils/build-script -RA --skip-build-cmark --build-llvm=0 --android \
+            --android-ndk "$ANDROID_NDK_HOME" --android-arch "$ANDROID_ARCH" --android-api-level "$SDK_ANDROID_API_LEVEL" \
+            --native-swift-tools-path="$TOOLCHAIN/bin" --native-clang-tools-path="$TOOLCHAIN/bin" \
+            --cross-compile-hosts="android-$ANDROID_ARCH" --cross-compile-deps-path="$SDK" --skip-local-build \
+            --build-swift-static-stdlib --xctest --install-swift --install-libdispatch --install-foundation --install-xctest \
+            --install-destdir="$SDK" \
+            --swift-install-components='compiler;clang-resource-dir-symlink;license;stdlib;sdk-overlay' \
+            --cross-compile-append-host-target-to-destdir=False --cross-compile-build-swift-tools=False \
+            -b --install-llbuild --swift-testing --install-swift-testing \
+            -p "--foundation-cmake-options=-DCMAKE_SHARED_LINKER_FLAGS=''"
+
+          pushd "$SDK_NAME/usr"
+          patchelf --set-rpath '$ORIGIN' lib/swift/android/lib[dFXs]*.so
+          rm -r bin lib/libsqlite3.so lib/lib{curses,ncurses}.so lib/terminfo share/{tabset,terminfo} || true
+          mv include/curl include/execinfo.h include/libxml2 include/spawn.h .
+          rm -r include/*
+          mv curl execinfo.h libxml2 spawn.h include/
+          cp -r ../../swift/lib/ClangImporter/SwiftBridging/{module.modulemap,swift} include/
+
+          TRIPLE="aarch64-linux-android"
+          mkdir -p "lib/${TRIPLE}"
+          mv lib/lib[a-z]*.so lib/pkgconfig lib/swift/android/lib*.{a,so} "lib/${TRIPLE}" || true
+
+          mv lib/swift_static lib/swift_static-aarch64
+          mv lib/libandroid-spawn.a lib/swift_static-aarch64/android
+          rm -rf lib/swift{,_static-aarch64}/clang
+          popd
+
+          rsync -ar "${SDK_NAME}/" "$SYSROOT"
+
+          mkdir -p "$SYSROOT/usr/lib/swift/clang/lib"
+          cp -r "$TOOLCHAIN/lib/clang"/*/include "$SYSROOT/usr/lib/swift/clang"
+          mv "$SYSROOT/linux" "$SYSROOT/usr/lib/swift/clang/lib"
+          ln -s ../swift/clang "$SYSROOT/usr/lib/swift_static-aarch64/clang"
+
+          cd "$SYSROOT"
+          git apply ../../libc++-stdlib.h.patch
+          cd ../..
+
+          BUNDLE="${SWIFT_TAG}-android-${SDK_ANDROID_API_LEVEL}-${BUNDLE_VERSION}"
+          BUNDLE_DIR="$BUNDLE.artifactbundle"
+          mkdir "$BUNDLE_DIR"
+          mv "$SDK_DIR" "$BUNDLE_DIR"
+
+          cat > "$BUNDLE_DIR/info.json" << JSON
+          {
+            "schemaVersion": "1.0",
+            "artifacts": {
+              "${BUNDLE}": {
+                "variants": [{ "path": "${SDK_DIR}" }],
+                "version": "${BUNDLE_VERSION}",
+                "type": "swiftSDK"
+              }
+            }
+          }
+          JSON
+
+          cat > "$BUNDLE_DIR/$SDK_DIR/swift-sdk.json" << JSON
+          {
+            "schemaVersion": "4.0",
+            "targetTriples": {
+          JSON
+
+          for api in $(eval echo "{${SDK_ANDROID_API_LEVEL}..35}"); do
+            if [[ "$api" == "35" ]]; then
+              TRAILING_COMMA=""
+            else
+              TRAILING_COMMA=","
+            fi
+            cat >> "$BUNDLE_DIR/$SDK_DIR/swift-sdk.json" << JSON
+              "aarch64-unknown-linux-android${api}": {
+                "sdkRootPath": "${ROOT}",
+                "swiftResourcesPath": "${ROOT}/usr/lib/swift",
+                "swiftStaticResourcesPath": "${ROOT}/usr/lib/swift_static-aarch64",
+                "toolsetPaths": ["swift-toolset.json"]
+              }${TRAILING_COMMA}
+          JSON
+          done
+
+          cat >> "$BUNDLE_DIR/$SDK_DIR/swift-sdk.json" << JSON
+            }
+          }
+          JSON
+
+          cat > "$BUNDLE_DIR/$SDK_DIR/swift-toolset.json" << JSON
+          {
+            "cCompiler": { "extraCLIOptions": ["-fPIC"] },
+            "swiftCompiler": { "extraCLIOptions": ["-Xclang-linker", "-fuse-ld=lld"] },
+            "schemaVersion": "1.0"
+          }
+          JSON
+
+          cat > "$BUNDLE_DIR/$SYSROOT/SDKSettings.json" << JSON
+          {
+            "DisplayName": "Android NDK ${NDK_VERSION} sysroot with ${VERSION} runtime libraries for API ${SDK_ANDROID_API_LEVEL}",
+            "Version": "27.3.13750724",
+            "VersionMap": {},
+            "CanonicalName": "${VERSION}-android${SDK_ANDROID_API_LEVEL}"
+          }
+          JSON
+
+          tree "$BUNDLE_DIR"
+          tar czf "$HOME/${BUNDLE_DIR}.tar.gz" "$BUNDLE_DIR"
+          sha256sum "$HOME/${BUNDLE_DIR}.tar.gz" | tee "$HOME/${BUNDLE_DIR}.sha256"
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-android-sdk-${{ inputs.swift_tag }}
+          path: |
+            ~/*.artifactbundle.tar.gz
+            ~/*.artifactbundle.sha256
+          compression-level: 0
